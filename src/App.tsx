@@ -14,17 +14,17 @@ function App() {
       {/* 1. El motor de mensajes envuelve todo */}
       <NotificationBanner /> {/* 2. El banner escucha al motor */}
       <ConfirmProvider>
-        <ProvidersProvider>
-          <CategoryProvider>
-            <ArticleProvider>
-              <AuthProvider>
+        <AuthProvider>
+          <ProvidersProvider>
+            <CategoryProvider>
+              <ArticleProvider>
                 <BrowserRouter>
                   <AppRouter />
                 </BrowserRouter>
-              </AuthProvider>
-            </ArticleProvider>
-          </CategoryProvider>
-        </ProvidersProvider>
+              </ArticleProvider>
+            </CategoryProvider>
+          </ProvidersProvider>
+        </AuthProvider>
       </ConfirmProvider>
     </NotificationProvider>
   );
