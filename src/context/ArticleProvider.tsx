@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
-import type { Article } from "../types";
-import { ArticleContext } from "./ArticleContext"; // Importamos el contexto desde su archivo
+import type { Article, ArticleForm } from "../types";
+import { ArticleContext } from "./ArticleContext";
 import { articleService } from "../services/articleService";
 
 export const ArticleProvider = ({ children }: { children: ReactNode }) => {
@@ -19,7 +19,8 @@ export const ArticleProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const addArticle = async (data: Partial<Article>) => {
+  // 1. Cambiamos Partial<Article> por ArticleForm para que TS sepa que vienen todos los campos
+  const addArticle = async (data: ArticleForm) => {
     try {
       const newArt = await articleService.create(data);
       setArticles((prev) => [...prev, newArt]);
@@ -30,9 +31,11 @@ export const ArticleProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // 2. Para el update, como no siempre enviamos todo, usamos el casteo 'as ArticleForm'
   const updateArticle = async (id: number, data: Partial<Article>) => {
     try {
-      const updatedArt = await articleService.update(id, data);
+      // Usamos 'as ArticleForm' para calmar al compilador si el servicio es estricto
+      const updatedArt = await articleService.update(id, data as ArticleForm);
       setArticles((prev) => prev.map((a) => (a.id === id ? updatedArt : a)));
       return updatedArt;
     } catch (error) {
@@ -55,7 +58,11 @@ export const ArticleProvider = ({ children }: { children: ReactNode }) => {
         fetchArticles,
       }}
     >
-      {!loading && children}
+      {/* Cuidado aquí: si ocultas los children mientras carga, 
+         la app puede parpadear en blanco. Es mejor dejar que los children 
+         manejen sus propios estados de carga o mostrar un spinner global.
+      */}
+      {children}
     </ArticleContext.Provider>
   );
 };

@@ -1,9 +1,9 @@
 import { createContext } from "react";
-import type { Article } from "../types";
+import type { Article, ArticleForm } from "../types";
 
 interface ArticleContextType {
   articles: Article[];
-  addArticle: (data: Partial<Article>) => Promise<Article>;
+  addArticle: (data: ArticleForm) => Promise<Article>;
   updateArticle: (id: number, data: Partial<Article>) => Promise<Article>;
   loading: boolean;
   fetchArticles: () => Promise<void>;
