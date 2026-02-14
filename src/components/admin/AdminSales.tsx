@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useContext } from "react";
-import { AuthContext } from "../../context/AuthContext"; // Importa tu contexto
+import { useEffect, useState, useMemo, useContext, useCallback } from "react";
+import { AuthContext } from "../../context/AuthContext";
 import {
   Box,
   Paper,
@@ -18,22 +18,28 @@ import {
 import { Add, Search } from "@mui/icons-material";
 import { useArticles } from "../../hooks/useArticles";
 import { useNotify } from "../../hooks/useNotify";
-import { saleService } from "../../services/saleService"; // Debes crear este service
+import { useConfirm } from "../../hooks/useConfirm";
+import { saleService } from "../../services/saleService";
 import type { SaleResponse, SaleItem } from "../../types/sales";
 import { SaleDialog } from "./SalesDialog";
 import { SaleRow } from "./SalesRow";
 
 export const AdminSales = () => {
-  const { user, isAdmin } = useContext(AuthContext); // Obtenemos el usuario y el rol
+  const { user, isAdmin } = useContext(AuthContext);
   const { articles, fetchArticles } = useArticles();
   const { showMsg } = useNotify();
+  const { confirm } = useConfirm();
 
   const [sales, setSales] = useState<SaleResponse[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [openModal, setOpenModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Estado del Formulario
+  // Estados del Formulario
   const [clientName, setClientName] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "EFECTIVO" | "TRANSFERENCIA" | ""
+  >("");
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [currentItem, setCurrentItem] = useState<SaleItem>({
     article_id: 0,
@@ -42,85 +48,79 @@ export const AdminSales = () => {
     unit_price: 0,
   });
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       const data = await saleService.getAll();
       setSales(data);
     } catch (err: unknown) {
       const error = err as { message?: string };
-      showMsg(error.message || "Error al guardar", "error");
+      showMsg(error.message || "Error al cargar Historial", "error");
     }
-  };
+  }, [showMsg]);
 
   useEffect(() => {
-    // Definimos una bandera para evitar fugas de memoria si el componente se desmonta
-
-    let isMounted = true;
-
-    const fetchData = async () => {
-      try {
-        const data = await saleService.getAll();
-
-        if (isMounted) {
-          setSales(data);
-        }
-      } catch (err: unknown) {
-        const error = err as { message?: string };
-
-        if (isMounted) {
-          showMsg(error.message || "Error al guardar", "error");
-        }
-      }
-    };
-
-    fetchData();
-
-    // Función de limpieza
-
-    return () => {
-      isMounted = false;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const filteredSales = useMemo(() => {
-    // 1. Verificamos si user existe antes de hacer nada
-    if (!user) {
-      console.log("Cargando usuario...");
-      return [];
-    }
-
-    // Ahora TypeScript sabe que 'user' NO es null aquí abajo
-    console.log("ID del usuario para filtrar:", user.id);
-
-    // 2. Aplicamos el filtro de rol
-    const baseSales = isAdmin
-      ? sales
-      : sales.filter((s) => Number(s.user_id) === Number(user.id));
-
-    // 3. Aplicamos la búsqueda
-    return baseSales.filter((s) => {
-      const search = searchTerm.toLowerCase();
-      const clientMatch = s.client_name?.toLowerCase().includes(search);
-      const dateMatch = new Date(s.date).toLocaleDateString().includes(search);
-
-      return clientMatch || dateMatch;
-    });
-  }, [sales, searchTerm, isAdmin, user]);
+    loadHistory();
+  }, [loadHistory]);
 
   const handleConfirmSale = async () => {
+    if (cart.length === 0 || paymentMethod === "") return;
+
+    const total = cart.reduce(
+      (acc, item) => acc + item.unit_price * item.units,
+      0,
+    );
+    const ok = await confirm({
+      title: "Confirmar Venta",
+      description: `Total: $${total.toLocaleString()} - Método: ${paymentMethod}`,
+      confirmText: "Confirmar",
+      severity: "primary",
+    });
+
+    if (!ok) return;
+
+    setActionLoading(true);
     try {
-      await saleService.saveSale({ client_name: clientName, items: cart });
-      showMsg("Venta realizada con éxito");
+      await saleService.saveSale({
+        client_name: clientName,
+        items: cart,
+        payment_method: paymentMethod,
+      });
+
+      showMsg("Venta exitosa", "success");
       setOpenModal(false);
+
+      // Reset total
       setCart([]);
       setClientName("");
-      fetchArticles(); // Actualiza el stock en el listado
-      loadHistory();
+      setPaymentMethod("");
+
+      await Promise.all([fetchArticles(), loadHistory()]);
+      
     } catch (err: unknown) {
       const error = err as { message?: string };
-      showMsg(error.message || "Error al guardar", "error");
+      showMsg(error.message || "Error al cargar ", "error");
+    } finally {
+      setActionLoading(false);
     }
   };
+
+  const handleCloseModal = () => {
+    if (!actionLoading) {
+      setOpenModal(false);
+      setPaymentMethod(""); // Reset para la próxima vez que abra
+    }
+  };
+
+  const filteredSales = useMemo(() => {
+    const base = isAdmin
+      ? sales
+      : sales.filter((s) => Number(s.user_id) === Number(user?.id));
+    return base.filter(
+      (s) =>
+        s.client_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.payment_method?.toLowerCase().includes(searchTerm.toLowerCase()),
+    );
+  }, [sales, searchTerm, isAdmin, user]);
 
   return (
     <Box sx={{ p: 2 }}>
@@ -128,14 +128,9 @@ export const AdminSales = () => {
         Punto de Venta
       </Typography>
 
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={2}
-        mb={3}
-        justifyContent="space-between"
-      >
+      <Stack direction="row" spacing={2} mb={3} justifyContent="space-between">
         <TextField
-          placeholder="Buscar venta (cliente o fecha)..."
+          placeholder="Buscar venta..."
           size="small"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -143,7 +138,7 @@ export const AdminSales = () => {
             input: {
               startAdornment: (
                 <InputAdornment position="start">
-                  <Search fontSize="small" />
+                  <Search />
                 </InputAdornment>
               ),
             },
@@ -151,7 +146,6 @@ export const AdminSales = () => {
         />
         <Button
           variant="contained"
-          color="primary"
           startIcon={<Add />}
           onClick={() => setOpenModal(true)}
         >
@@ -159,15 +153,18 @@ export const AdminSales = () => {
         </Button>
       </Stack>
 
-      <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
-        <Table>
+      <TableContainer component={Paper}>
+        <Table size="small">
           <TableHead sx={{ bgcolor: "#f5f5f5" }}>
             <TableRow>
               <TableCell width={50} />
-              <TableCell>Fecha-Hora</TableCell>
+              <TableCell>Fecha</TableCell>
               <TableCell>Cliente</TableCell>
-              <TableCell>Vendedor</TableCell> {/* <-- Encabezado nuevo */}
-              <TableCell align="right">Total</TableCell>
+              <TableCell>Método</TableCell>
+              <TableCell>Vendedor</TableCell>{" "}
+              {/* Si agregaste la columna de vendedor */}
+              <TableCell align="center">Total</TableCell>
+              <TableCell align="center">PDF</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -180,18 +177,60 @@ export const AdminSales = () => {
 
       <SaleDialog
         open={openModal}
-        onClose={() => setOpenModal(false)}
+        loading={actionLoading}
+        onClose={handleCloseModal}
         articles={articles}
         cart={cart}
         currentItem={currentItem}
         clientName={clientName}
         setClientName={setClientName}
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
         setCurrentItem={setCurrentItem}
         addToCart={() => {
-          setCart([...cart, currentItem]);
+          // 1. Buscamos si el producto ya está en el carrito
+          const existingItemIndex = cart.findIndex(
+            (item) => item.article_id === currentItem.article_id,
+          );
+
+          // 2. Buscamos el artículo en la lista maestra para validar stock final
+          const articleInfo = articles.find(
+            (a) => a.id === currentItem.article_id,
+          );
+          if (!articleInfo) return;
+
+          if (existingItemIndex > -1) {
+            const newCart = [...cart];
+            const newTotalUnits =
+              newCart[existingItemIndex].units + currentItem.units;
+
+            // 3. Validación de seguridad: No permitir sumar más del stock real
+            if (newTotalUnits > articleInfo.stock) {
+              showMsg(
+                `No puedes agregar más de ${articleInfo.stock} unidades en total`,
+                "error",
+              );
+              return;
+            }
+
+            newCart[existingItemIndex] = {
+              ...newCart[existingItemIndex],
+              units: newTotalUnits,
+            };
+            setCart(newCart);
+          } else {
+            // 4. Si no existía, simplemente lo agregamos
+            setCart([...cart, currentItem]);
+          }
+
+          // 5. Resetear el selector
           setCurrentItem({ article_id: 0, title: "", units: 1, unit_price: 0 });
         }}
-        removeFromCart={(idx) => setCart(cart.filter((_, i) => i !== idx))}
+        removeFromCart={(idx) => {
+          setCart(cart.filter((_, i) => i !== idx));
+          // Opcional: resetear el selector actual si era el mismo producto
+          setCurrentItem({ article_id: 0, title: "", units: 1, unit_price: 0 });
+        }}
         onSave={handleConfirmSale}
       />
     </Box>

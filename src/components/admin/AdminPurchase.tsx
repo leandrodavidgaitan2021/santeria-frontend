@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Box,
   Paper,
@@ -18,10 +18,10 @@ import { Add, Search } from "@mui/icons-material";
 import { useArticles } from "../../hooks/useArticles";
 import { useProviders } from "../../hooks/useProviders";
 import { useNotify } from "../../hooks/useNotify";
+import { useConfirm } from "../../hooks/useConfirm";
 import { purchaseService } from "../../services/purchaseService";
 import type { PurchaseResponse, ShoppingItem } from "../../types/purchase";
 
-// Importamos los nuevos componentes
 import { PurchaseRow } from "./PurchaseRow";
 import { PurchaseDialog } from "./PurchaseDialog";
 
@@ -29,11 +29,26 @@ export const AdminPurchase = () => {
   const { articles, fetchArticles } = useArticles();
   const { providers } = useProviders();
   const { showMsg } = useNotify();
+  const { confirm } = useConfirm();
 
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [openModal, setOpenModal] = useState(false);
-  const [providerId, setProviderId] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // --- Estado del Formulario ---
+  const [providerId, setProviderId] = useState<string | number>("");
+
+  // CORRECCIÓN: Inicializamos vacío para forzar selección
+  const [paymentMethod, setPaymentMethod] = useState<
+    "EFECTIVO" | "TRANSFERENCIA" | ""
+  >("");
+
+  // --- Nuevo Estado para la Fecha ---
+  const [purchaseDate, setPurchaseDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+
   const [cart, setCart] = useState<ShoppingItem[]>([]);
   const [currentItem, setCurrentItem] = useState<ShoppingItem>({
     article_id: 0,
@@ -44,71 +59,86 @@ export const AdminPurchase = () => {
     final_price: 0,
   });
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       const data = await purchaseService.getAll();
       setPurchases(data);
     } catch (err: unknown) {
       const error = err as { message?: string };
-      showMsg(error.message || "Error al guardar", "error");
+      showMsg(error.message || "Error al cargar el historial", "error");
     }
-  };
+  }, [showMsg]);
 
   useEffect(() => {
-    // Definimos una bandera para evitar fugas de memoria si el componente se desmonta
-
-    let isMounted = true;
-
-    const fetchData = async () => {
-      try {
-        const data = await purchaseService.getAll();
-
-        if (isMounted) {
-          setPurchases(data);
-        }
-      } catch (err: unknown) {
-        const error = err as { message?: string };
-
-        if (isMounted) {
-          showMsg(error.message || "Error al guardar", "error");
-        }
-      }
-    };
-
-    fetchData();
-
-    // Función de limpieza
-
-    return () => {
-      isMounted = false;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const filteredPurchases = useMemo(() => {
-    return purchases.filter(
-      (p) =>
-        p.provider_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        new Date(p.date).toLocaleDateString().includes(searchTerm),
-    );
-  }, [purchases, searchTerm]);
+    loadHistory();
+  }, [loadHistory]);
 
   const handleSaveAll = async () => {
+    if (!providerId) return showMsg("Debes seleccionar un proveedor", "error");
+    if (cart.length === 0) return showMsg("El carrito está vacío", "error");
+    if (paymentMethod === "")
+      return showMsg("Selecciona un método de pago", "error");
+    if (!purchaseDate) return showMsg("Selecciona una fecha válida", "error");
+
+    const totalCompra = cart.reduce(
+      (acc, item) => acc + item.unit_price * item.units,
+      0,
+    );
+
+    const ok = await confirm({
+      title: "Confirmar Ingreso de Mercadería",
+      description: `¿Estás seguro de registrar esta compra?\nFecha: ${new Date(purchaseDate).toLocaleDateString()}\nTotal: $${totalCompra.toLocaleString()}\nMétodo de Pago: ${paymentMethod}`,
+      confirmText: "Registrar Compra",
+      severity: "primary",
+    });
+
+    if (!ok) return;
+
+    setActionLoading(true);
     try {
       await purchaseService.savePurchase({
         provider_id: providerId,
+        payment_method: paymentMethod,
+        date: purchaseDate, // <--- Enviamos la fecha seleccionada
         items: cart,
       });
-      showMsg("¡Compra registrada!");
+
+      showMsg("¡Compra registrada correctamente!", "success");
       setOpenModal(false);
+
+      // Limpiar Formulario
       setCart([]);
       setProviderId("");
-      fetchArticles();
-      loadHistory();
+      setPaymentMethod("");
+      setPurchaseDate(new Date().toISOString().split("T")[0]); // Reset a hoy
+
+      await Promise.all([fetchArticles(), loadHistory()]);
     } catch (err: unknown) {
       const error = err as { message?: string };
-      showMsg(error.message || "Error al guardar", "error");
+      showMsg(error.message || "Error al procesar la compra", "error");
+    } finally {
+      setActionLoading(false);
     }
   };
+
+  const handleCloseModal = () => {
+    if (!actionLoading) {
+      setOpenModal(false);
+      setPaymentMethod(""); // Reset para la próxima vez
+      setProviderId("");
+    }
+  };
+
+  const filteredPurchases = useMemo(() => {
+    return purchases.filter((p) => {
+      const search = searchTerm.toLowerCase();
+      return (
+        p.provider_name.toLowerCase().includes(search) ||
+        new Date(p.date).toLocaleDateString().includes(search) ||
+        p.payment_method?.toLowerCase().includes(search)
+      );
+    });
+  }, [purchases, searchTerm]);
 
   return (
     <Box sx={{ p: 2 }}>
@@ -116,17 +146,13 @@ export const AdminPurchase = () => {
         Gestión de Compras
       </Typography>
 
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={2}
-        mb={3}
-        justifyContent="space-between"
-      >
+      <Stack direction="row" spacing={2} mb={3} justifyContent="space-between">
         <TextField
-          placeholder="Buscar proveedor o fecha..."
+          placeholder="Buscar proveedor, fecha..."
           size="small"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          sx={{ width: { sm: 350 } }}
           slotProps={{
             input: {
               startAdornment: (
@@ -147,32 +173,53 @@ export const AdminPurchase = () => {
       </Stack>
 
       <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
-        <Table>
+        <Table size="small">
           <TableHead sx={{ bgcolor: "#f5f5f5" }}>
             <TableRow>
               <TableCell width={50} />
-              <TableCell>Fecha</TableCell>
-              <TableCell>Proveedor</TableCell>
-              <TableCell align="right">Total</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Fecha</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Proveedor</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Método</TableCell>
+              <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                Total
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredPurchases.map((p) => (
-              <PurchaseRow key={p.id} purchase={p} />
-            ))}
+            {filteredPurchases.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  align="center"
+                  sx={{ py: 3, color: "text.secondary" }}
+                >
+                  No se encontraron registros de compras
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredPurchases.map((p) => (
+                <PurchaseRow key={p.id} purchase={p} />
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
 
       <PurchaseDialog
         open={openModal}
-        onClose={() => setOpenModal(false)}
+        onClose={handleCloseModal}
         providers={providers}
         articles={articles}
         cart={cart}
         currentItem={currentItem}
         providerId={providerId}
         setProviderId={setProviderId}
+        // --- Nuevas Props de Fecha ---
+        purchaseDate={purchaseDate}
+        setPurchaseDate={setPurchaseDate}
+        // ----------------------------
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
         setCurrentItem={setCurrentItem}
         addToCart={() => {
           if (!currentItem.article_id)
@@ -187,8 +234,11 @@ export const AdminPurchase = () => {
             final_price: 0,
           });
         }}
-        removeFromCart={(index) => setCart(cart.filter((_, i) => i !== index))}
+        removeFromCart={(index) =>
+          !actionLoading && setCart(cart.filter((_, i) => i !== index))
+        }
         onSave={handleSaveAll}
+        loading={actionLoading}
       />
     </Box>
   );

@@ -19,16 +19,21 @@ import {
 } from "@mui/material";
 import { Add, Edit, Category as CatIcon } from "@mui/icons-material";
 import { useCategories } from "../../hooks/useCategory";
-import { useNotify } from "../../hooks/useNotify"; // Importa el hook
+import { useNotify } from "../../hooks/useNotify";
+import { useConfirm } from "../../hooks/useConfirm"; // Importamos useConfirm
 
 export const AdminCategories = () => {
   const { categories, addCategory, updateCategory, loading } = useCategories();
-  const { showMsg } = useNotify(); // Inicializa
+  const { showMsg } = useNotify();
+  const { confirm } = useConfirm(); // Inicializamos el hook de confirmación
 
   // Estados para el Modal (Dialog)
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Nuevo estado para controlar la carga de la acción
+  const [actionLoading, setActionLoading] = useState(false);
 
   const handleOpen = (id: number | null = null, currentName = "") => {
     setSelectedId(id);
@@ -37,6 +42,7 @@ export const AdminCategories = () => {
   };
 
   const handleClose = () => {
+    if (actionLoading) return; // Evita cerrar mientras guarda
     setOpen(false);
     setName("");
     setSelectedId(null);
@@ -45,20 +51,38 @@ export const AdminCategories = () => {
   const handleSubmit = async () => {
     if (!name.trim()) return;
 
+    // Lógica de confirmación
+    const isEditing = !!selectedId;
+    const ok = await confirm({
+      title: isEditing ? "Actualizar Categoría" : "Nueva Categoría",
+      description: isEditing
+        ? `¿Seguro que deseas renombrar esta categoría a "${name}"?`
+        : `¿Deseas crear la categoría "${name}"?`,
+      confirmText: isEditing ? "Actualizar" : "Crear",
+      severity: "primary", // Usamos "primary" para evitar el error de tipos con "success"
+    });
+
+    if (!ok) return;
+
+    setActionLoading(true); // Iniciamos carga
+
     try {
       if (selectedId) {
         await updateCategory(selectedId, name);
-        showMsg("Categoría actualizada con éxito");
+        showMsg("Categoría actualizada con éxito", "success");
       } else {
         await addCategory(name);
-        showMsg("Categoría creada correctamente");
+        showMsg("Categoría creada correctamente", "success");
       }
-      handleClose();
+      setOpen(false); // Cerramos directamente si todo sale bien
+      setName("");
+      setSelectedId(null);
     } catch (err: unknown) {
-      // Usamos una aserción simple o comprobamos si es objeto para leer .message
       const mensaje =
         (err as { message?: string })?.message || "Error inesperado";
       showMsg(mensaje, "error");
+    } finally {
+      setActionLoading(false); // Finalizamos carga
     }
   };
 
@@ -83,7 +107,11 @@ export const AdminCategories = () => {
           variant="contained"
           startIcon={<Add />}
           onClick={() => handleOpen()}
-          sx={{ bgcolor: "#2e7d32", textTransform: "none" }}
+          sx={{
+            bgcolor: "#2e7d32",
+            textTransform: "none",
+            "&:hover": { bgcolor: "#1b5e20" },
+          }}
         >
           Nueva
         </Button>
@@ -105,6 +133,7 @@ export const AdminCategories = () => {
                       size="small"
                       onClick={() => handleOpen(cat.id, cat.name)}
                       color="primary"
+                      disabled={actionLoading}
                     >
                       <Edit fontSize="small" />
                     </IconButton>
@@ -167,14 +196,21 @@ export const AdminCategories = () => {
             label="Nombre de la categoría"
             placeholder="Ej: Velas, Sahumerios..."
             value={name}
+            disabled={actionLoading}
             onChange={(e) => setName(e.target.value)}
             sx={{ mt: 1 }}
+            onKeyPress={(e) => {
+              if (e.key === "Enter" && name.trim()) {
+                handleSubmit();
+              }
+            }}
           />
         </DialogContent>
         <DialogActions sx={{ p: 2, pt: 0 }}>
           <Button
             onClick={handleClose}
             size="small"
+            disabled={actionLoading}
             sx={{ color: "text.secondary" }}
           >
             Cancelar
@@ -184,9 +220,14 @@ export const AdminCategories = () => {
             variant="contained"
             size="small"
             color="success"
-            disabled={!name.trim()}
+            disabled={!name.trim() || actionLoading}
+            sx={{ minWidth: 80 }}
           >
-            Guardar
+            {actionLoading ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Guardar"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

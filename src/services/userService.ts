@@ -1,12 +1,5 @@
 import api from "./api";
-import type { User } from "../types";
-
-// Definimos un tipo para la creación que no requiera ID ni created_at
-export interface CreateUserDTO {
-  username: string;
-  email: string;
-  password?: string;
-}
+import type { User, RegisterUserData, RegisterResponse } from "../types";
 
 export const userService = {
   // Obtener todos los vendedores (Retorna un array de User)
@@ -15,10 +8,14 @@ export const userService = {
     return response.data;
   },
 
-  // Registrar un nuevo vendedor
-  registerVendedor: async (userData: CreateUserDTO) => {
-    // Forzamos el rol a 'user' para que coincida con el db.String(5) de Flask
-    const response = await api.post("/user/register-vendedor", userData);
+  // Registro con la interfaz que definiste
+  registerUser: async (
+    userData: RegisterUserData,
+  ): Promise<RegisterResponse> => {
+    const response = await api.post<RegisterResponse>(
+      "/user/register-user",
+      userData,
+    );
     return response.data;
   },
 

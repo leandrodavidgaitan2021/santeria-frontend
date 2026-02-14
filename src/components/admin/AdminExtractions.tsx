@@ -18,14 +18,20 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
+  Chip,
 } from "@mui/material";
 import { MoneyOff, Person, Notes, Add, Close } from "@mui/icons-material";
 import { cashService } from "../../services/cashService";
 import { useNotify } from "../../hooks/useNotify";
+import { useConfirm } from "../../hooks/useConfirm"; // Importamos confirm
 import type { CashMovementResponse } from "../../types/cash";
 
 export const AdminExtractions = () => {
   const { showMsg } = useNotify();
+  const { confirm } = useConfirm(); // Inicializamos
   const [loading, setLoading] = useState(false);
   const [openModal, setOpenModal] = useState(false);
   const [lastExtractions, setLastExtractions] = useState<
@@ -36,6 +42,7 @@ export const AdminExtractions = () => {
     amount: "",
     reason: "",
     person: "",
+    payment_method: "", // Valor por defecto
   });
 
   const loadExtractions = useCallback(async () => {
@@ -43,7 +50,7 @@ export const AdminExtractions = () => {
       const data = await cashService.getMovements();
       const extractions = data
         .filter((m) => m.type === "EXTRACCION")
-        .slice(0, 10); // Mostramos un poco más ahora que el form no ocupa espacio
+        .slice(0, 10);
       setLastExtractions(extractions);
     } catch (err) {
       console.error("Error cargando historial", err);
@@ -55,14 +62,28 @@ export const AdminExtractions = () => {
   }, [loadExtractions]);
 
   const handleClose = () => {
+    if (loading) return; // Evitar cierre si está cargando
     setOpenModal(false);
-    setFormData({ amount: "", reason: "", person: "" });
+    setFormData({ amount: "", reason: "", person: "", payment_method: "" });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const monto = Number(formData.amount);
+
     if (monto <= 0) return showMsg("El monto debe ser mayor a 0", "error");
+    if (!formData.person.trim())
+      return showMsg("Debe indicar un responsable", "error");
+
+    // Diálogo de Confirmación
+    const ok = await confirm({
+      title: "Confirmar Extracción de Caja",
+      description: `¿Retirar $${monto.toLocaleString()} de ${formData.payment_method}?`,
+      confirmText: "Retirar Dinero",
+      severity: "error", // Rojo porque es una salida de dinero
+    });
+
+    if (!ok) return;
 
     setLoading(true);
     try {
@@ -70,10 +91,12 @@ export const AdminExtractions = () => {
         amount: monto,
         reason: formData.reason,
         person: formData.person,
+        payment_method: formData.payment_method, // Enviar al servicio
       });
 
-      showMsg("Extracción registrada con éxito");
-      handleClose();
+      showMsg("Extracción registrada con éxito", "success");
+      setOpenModal(false);
+      setFormData({ amount: "", reason: "", person: "", payment_method: "" });
       await loadExtractions();
     } catch (err: unknown) {
       const mensaje =
@@ -144,6 +167,8 @@ export const AdminExtractions = () => {
               <TableCell align="right" sx={{ fontWeight: "bold" }}>
                 Monto
               </TableCell>
+              {/* En el TableHead */}
+              <TableCell sx={{ fontWeight: "bold" }}>Método</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -170,6 +195,16 @@ export const AdminExtractions = () => {
                   >
                     - ${Math.abs(m.amount).toLocaleString("es-AR")}
                   </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={m.payment_method}
+                      size="small"
+                      variant="outlined"
+                      color={
+                        m.payment_method === "EFECTIVO" ? "default" : "info"
+                      }
+                    />
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -194,19 +229,43 @@ export const AdminExtractions = () => {
             }}
           >
             Registrar Extracción
-            <IconButton onClick={handleClose} size="small">
+            <IconButton onClick={handleClose} size="small" disabled={loading}>
               <Close />
             </IconButton>
           </DialogTitle>
 
           <DialogContent dividers>
             <Stack spacing={3} sx={{ mt: 1 }}>
+              <Typography
+                variant="body2"
+                fontWeight="bold"
+                color="text.secondary"
+              >
+                Origen del dinero:
+              </Typography>
+              <ToggleButtonGroup
+                value={formData.payment_method}
+                exclusive
+                onChange={(_, val) =>
+                  val && setFormData({ ...formData, payment_method: val })
+                }
+                fullWidth
+                color="primary"
+                size="small"
+              >
+                <ToggleButton value="EFECTIVO">Efectivo</ToggleButton>
+                <ToggleButton value="TRANSFERENCIA">
+                  Billetera / Banco
+                </ToggleButton>
+              </ToggleButtonGroup>
+
               <TextField
                 label="Monto a retirar"
                 type="number"
                 fullWidth
                 required
                 autoFocus
+                disabled={loading}
                 value={formData.amount}
                 onChange={(e) =>
                   setFormData({ ...formData, amount: e.target.value })
@@ -224,6 +283,7 @@ export const AdminExtractions = () => {
                 label="Responsable"
                 fullWidth
                 required
+                disabled={loading}
                 placeholder="¿Quién retira el dinero?"
                 value={formData.person}
                 onChange={(e) =>
@@ -245,6 +305,7 @@ export const AdminExtractions = () => {
                 fullWidth
                 multiline
                 rows={2}
+                disabled={loading}
                 placeholder="Ej: Pago de flete, compra de artículos..."
                 value={formData.reason}
                 onChange={(e) =>
@@ -267,7 +328,7 @@ export const AdminExtractions = () => {
           </DialogContent>
 
           <DialogActions sx={{ p: 2.5 }}>
-            <Button onClick={handleClose} color="inherit">
+            <Button onClick={handleClose} color="inherit" disabled={loading}>
               Cancelar
             </Button>
             <Button
@@ -275,9 +336,13 @@ export const AdminExtractions = () => {
               color="error"
               type="submit"
               disabled={loading}
-              sx={{ px: 4 }}
+              sx={{ px: 4, minWidth: 120 }}
             >
-              {loading ? "Registrando..." : "Confirmar"}
+              {loading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                "Confirmar"
+              )}
             </Button>
           </DialogActions>
         </form>

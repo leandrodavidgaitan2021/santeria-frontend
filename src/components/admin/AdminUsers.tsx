@@ -15,15 +15,23 @@ import {
   TableHead,
   TableRow,
   IconButton,
+  MenuItem,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import {
-  GroupAdd,
   Person,
   LockOpen as LockOpenIcon,
   Lock as LockIcon,
   Key as KeyIcon,
+  AdminPanelSettings,
+  PersonAdd,
+  Close,
 } from "@mui/icons-material";
-import type { User } from "../../types"; // Importamos tu interfaz
+import type { User, RegisterUserData, UserRole } from "../../types";
 import { userService } from "../../services/userService";
 import { useNotify } from "../../hooks/useNotify";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -32,16 +40,17 @@ export const AdminUsers = () => {
   const [vendedores, setVendedores] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const { confirm } = useConfirm(); // 2. Inicializar el hook
+  const [openModal, setOpenModal] = useState(false); // Estado para el Modal
+  const { confirm } = useConfirm();
   const { showMsg } = useNotify();
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<RegisterUserData>({
     username: "",
     email: "",
     password: "",
+    role: "vendedor",
   });
 
-  // 1. Definimos la función de carga con useCallback para que sea estable
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
@@ -53,60 +62,52 @@ export const AdminUsers = () => {
     } finally {
       setLoading(false);
     }
-  }, [showMsg]); // Solo se recrea si showMsg cambia
+  }, [showMsg]);
 
-  // 2. useEffect llama a la función memorizada al montar el componente
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]); // Ahora es seguro ponerla aquí
+  }, [loadUsers]);
+
+  const handleCloseModal = () => {
+    setOpenModal(false);
+    setFormData({ username: "", email: "", password: "", role: "vendedor" });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionLoading(true);
 
-    const ok = await confirm({
-      title: "Registrar Vendedor",
-      description: "¿Estás seguro de crear vendedor?",
-      confirmText: "Crear",
-      severity: "warning", // Color naranja
-    });
-
-    if (ok) {
-      try {
-        await userService.registerVendedor(formData);
-        setFormData({ username: "", email: "", password: "" });
-        showMsg("Vendedor registrado con éxito", "success");
-
-        // 3. ¡Ahora podemos llamar a loadUsers para refrescar la tabla!
-        await loadUsers();
-      } catch (err: unknown) {
-        const error = err as { message?: string };
-        showMsg(error.message || "Error al guardar", "error");
-      } finally {
-        setActionLoading(false);
-      }
+    try {
+      await userService.registerUser(formData);
+      showMsg("Usuario registrado con éxito", "success");
+      handleCloseModal(); // Cierra y resetea
+      await loadUsers();
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      showMsg(error.message || "Error al guardar", "error");
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  // Función para Bloquear/Desbloquear (Cambia el flag 'active')
   const handleToggleBlock = async (id: number) => {
-    const vendedor = vendedores.find((v) => v.id === id);
-    if (!vendedor) return;
+    const usuario = vendedores.find((v) => v.id === id);
+    if (!usuario) return;
 
     const ok = await confirm({
-      title: vendedor.active ? "Bloquear Vendedor" : "Activar Vendedor",
-      description: vendedor.active
+      title: usuario.active ? "Bloquear Usuario" : "Activar Usuario",
+      description: usuario.active
         ? "¿Seguro? El usuario no podrá entrar al sistema."
         : "¿Deseas restaurar el acceso de este usuario?",
-      confirmText: vendedor.active ? "Bloquear" : "Activar",
-      severity: vendedor.active ? "error" : "primary",
+      confirmText: usuario.active ? "Bloquear" : "Activar",
+      severity: usuario.active ? "error" : "primary",
     });
 
     if (ok) {
       try {
-        await userService.toggleBlock(id); // Llamada al nuevo servicio
+        await userService.toggleBlock(id);
         showMsg("Estado actualizado correctamente", "success");
-        await loadUsers(); // Esto hará que el icono cambie de LockOpen a Lock
+        await loadUsers();
       } catch (err: unknown) {
         const error = err as { message?: string };
         showMsg(error.message || "Error al cambiar estado", "error");
@@ -114,14 +115,13 @@ export const AdminUsers = () => {
     }
   };
 
-  // Función para Resetear Clave (Solo cambia la contraseña a 12345678)
   const handleResetPassword = async (id: number) => {
-    const vendedor = vendedores.find((v) => v.id === id);
-    if (!vendedor) return;
+    const usuario = vendedores.find((v) => v.id === id);
+    if (!usuario) return;
 
     const ok = await confirm({
       title: "Resetear Contraseña",
-      description: `La clave de ${vendedor.username} cambiará a '12345678'.\n¿Confirmar acción?`,
+      description: `La clave de ${usuario.username} cambiará a '12345678'.`,
       confirmText: "Resetear",
       severity: "warning",
     });
@@ -130,8 +130,6 @@ export const AdminUsers = () => {
       try {
         await userService.resetPassword(id);
         showMsg("Contraseña reseteada con éxito", "success");
-        // Aquí no es estrictamente necesario loadUsers() porque active no cambia,
-        // pero puedes hacerlo por seguridad.
       } catch (err: unknown) {
         const error = err as { message?: string };
         showMsg(error.message || "Error al resetear clave", "error");
@@ -140,108 +138,48 @@ export const AdminUsers = () => {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 2 }}>
-      <Stack spacing={4}>
-        {/* Formulario de Alta */}
-        <Paper
-          elevation={3}
-          sx={{ p: 4, borderRadius: 3, borderTop: "4px solid #455a64" }}
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <Stack spacing={3}>
+        {/* Encabezado con Botón de Nuevo Usuario */}
+        <Box
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          sx={{ mb: 1 }}
         >
-          <Stack direction="row" spacing={1} alignItems="center" mb={3}>
-            <GroupAdd sx={{ color: "#455a64" }} />
-            <Typography variant="h5" fontWeight="bold">
-              Gestión de Vendedores
-            </Typography>
-          </Stack>
-
-          <form onSubmit={handleSubmit}>
-            <Box
-              display="grid"
-              gridTemplateColumns={{ xs: "1fr", sm: "1fr 1fr" }}
-              gap={2}
-            >
-              <TextField
-                label="Nombre de Usuario"
-                fullWidth
-                required
-                value={formData.username}
-                onChange={(e) =>
-                  setFormData({ ...formData, username: e.target.value })
-                }
-              />
-              <TextField
-                label="Email"
-                type="email"
-                fullWidth
-                required
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-              />
-              <TextField
-                label="Contraseña"
-                type="password"
-                fullWidth
-                required
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-              />
-              <TextField
-                label="Rol asignado"
-                value="Vendedor (user)"
-                disabled
-                helperText="Permisos limitados a Ventas y Artículos"
-              />
-              <Box sx={{ gridColumn: { sm: "span 2" }, mt: 1 }}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  fullWidth
-                  disabled={actionLoading}
-                  sx={{
-                    py: 1.5,
-                    fontWeight: "bold",
-                    bgcolor: "#455a64",
-                    "&:hover": { bgcolor: "#37474f" },
-                  }}
-                >
-                  {actionLoading ? (
-                    <CircularProgress size={24} color="inherit" />
-                  ) : (
-                    "Registrar Vendedor"
-                  )}
-                </Button>
-              </Box>
-            </Box>
-          </form>
-        </Paper>
+          <Typography variant="h4" fontWeight="bold" color="text.primary">
+            Usuarios
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<PersonAdd />}
+            onClick={() => setOpenModal(true)}
+            sx={{
+              bgcolor: "#455a64",
+              fontWeight: "bold",
+              "&:hover": { bgcolor: "#37474f" },
+            }}
+          >
+            Nuevo Usuario
+          </Button>
+        </Box>
 
         {/* Tabla de Usuarios */}
         <TableContainer
           component={Paper}
-          sx={{ borderRadius: 3, boxShadow: 2 }}
+          sx={{ borderRadius: 3, boxShadow: 3, overflow: "hidden" }}
         >
-          <Box
-            sx={{ p: 2, bgcolor: "#f8f9fa", borderBottom: "1px solid #eee" }}
-          >
-            <Typography variant="h6" fontWeight="600">
-              Lista de Vendedores
-            </Typography>
-          </Box>
           {loading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+            <Box sx={{ display: "flex", justifyContent: "center", p: 8 }}>
               <CircularProgress />
             </Box>
           ) : (
             <Table>
-              <TableHead>
+              <TableHead sx={{ bgcolor: "#f8f9fa" }}>
                 <TableRow>
                   <TableCell sx={{ fontWeight: "bold" }}>Usuario</TableCell>
+                  <TableCell sx={{ fontWeight: "bold" }}>Rol</TableCell>
                   <TableCell sx={{ fontWeight: "bold" }}>Email</TableCell>
-                  <TableCell sx={{ fontWeight: "bold" }}>Alta</TableCell>
                   <TableCell sx={{ fontWeight: "bold" }} align="right">
                     Acciones
                   </TableCell>
@@ -252,77 +190,56 @@ export const AdminUsers = () => {
                   <TableRow
                     key={v.id}
                     hover
-                    sx={{
-                      opacity: v.active ? 1 : 0.7,
-                      bgcolor: v.active ? "inherit" : "rgba(0, 0, 0, 0.04)",
-                      transition: "all 0.3s ease",
-                    }}
+                    sx={{ opacity: v.active ? 1 : 0.6 }}
                   >
                     <TableCell>
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <Person
-                          fontSize="small"
-                          color={v.active ? "primary" : "disabled"}
-                        />
-                        <Typography
-                          variant="body2"
-                          fontWeight="500"
-                          sx={{
-                            textDecoration: v.active ? "none" : "line-through",
-                            color: v.active ? "text.primary" : "text.secondary",
-                          }}
-                        >
+                        {v.role === "admin" ? (
+                          <AdminPanelSettings
+                            fontSize="small"
+                            color="secondary"
+                          />
+                        ) : (
+                          <Person
+                            fontSize="small"
+                            color={v.active ? "primary" : "disabled"}
+                          />
+                        )}
+                        <Typography variant="body2" fontWeight="500">
                           {v.username}
                         </Typography>
-                        {!v.active && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: "error.main",
-                              fontWeight: "bold",
-                              ml: 1,
-                            }}
-                          >
-                            (BLOQUEADO)
-                          </Typography>
-                        )}
                       </Stack>
                     </TableCell>
-
-                    <TableCell
-                      sx={{ color: v.active ? "inherit" : "text.disabled" }}
-                    >
-                      {v.email}
+                    <TableCell>
+                      <Chip
+                        label={v.role.toUpperCase()}
+                        size="small"
+                        color={v.role === "admin" ? "secondary" : "default"}
+                        variant={v.active ? "filled" : "outlined"}
+                      />
                     </TableCell>
-
-                    <TableCell
-                      sx={{ color: v.active ? "inherit" : "text.disabled" }}
-                    >
-                      {new Date(v.created_at).toLocaleDateString()}
-                    </TableCell>
-
+                    <TableCell>{v.email}</TableCell>
                     <TableCell align="right">
-                      {/* BOTÓN 1: RESET PASSWORD (Independiente) */}
                       <IconButton
                         color="primary"
                         size="small"
                         onClick={() => handleResetPassword(v.id)}
-                        title="Resetear clave a 12345678"
-                        sx={{ mr: 1 }}
+                        title="Resetear clave"
                       >
-                        <KeyIcon />
+                        <KeyIcon fontSize="small" />
                       </IconButton>
-
-                      {/* BOTÓN 2: BLOQUEAR / DESBLOQUEAR */}
                       <IconButton
                         color={v.active ? "warning" : "error"}
                         size="small"
                         onClick={() => handleToggleBlock(v.id)}
-                        title={
-                          v.active ? "Bloquear Usuario" : "Desbloquear Usuario"
-                        }
+                        title={v.active ? "Bloquear" : "Desbloquear"}
+                        sx={{ ml: 1 }}
                       >
-                        {v.active ? <LockIcon /> : <LockOpenIcon />}
+                        {v.active ? (
+                          <LockIcon fontSize="small" />
+                        ) : (
+                          <LockOpenIcon fontSize="small" />
+                        )}
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -332,6 +249,101 @@ export const AdminUsers = () => {
           )}
         </TableContainer>
       </Stack>
+
+      {/* --- MODAL PARA NUEVO USUARIO --- */}
+      <Dialog
+        open={openModal}
+        onClose={actionLoading ? undefined : handleCloseModal}
+        fullWidth
+        maxWidth="xs"
+      >
+        <form onSubmit={handleSubmit}>
+          <DialogTitle
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            Registrar Usuario
+            <IconButton onClick={handleCloseModal} disabled={actionLoading}>
+              <Close />
+            </IconButton>
+          </DialogTitle>
+
+          <DialogContent dividers>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField
+                label="Nombre de Usuario"
+                fullWidth
+                required
+                size="small"
+                value={formData.username}
+                onChange={(e) =>
+                  setFormData({ ...formData, username: e.target.value })
+                }
+              />
+              <TextField
+                label="Email"
+                type="email"
+                fullWidth
+                required
+                size="small"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+              />
+              <TextField
+                label="Contraseña"
+                type="password"
+                fullWidth
+                required
+                size="small"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+              />
+              <TextField
+                select
+                label="Rol asignado"
+                fullWidth
+                size="small"
+                value={formData.role}
+                onChange={(e) =>
+                  setFormData({ ...formData, role: e.target.value as UserRole })
+                }
+              >
+                <MenuItem value="vendedor">Vendedor</MenuItem>
+                <MenuItem value="admin">Administrador</MenuItem>
+              </TextField>
+            </Stack>
+          </DialogContent>
+
+          <DialogActions sx={{ p: 2 }}>
+            <Button
+              onClick={handleCloseModal}
+              color="inherit"
+              disabled={actionLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={actionLoading}
+              sx={{ bgcolor: "#455a64", "&:hover": { bgcolor: "#37474f" } }}
+            >
+              {actionLoading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                "Guardar Usuario"
+              )}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
     </Container>
   );
 };

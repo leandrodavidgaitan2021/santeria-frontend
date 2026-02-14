@@ -2,7 +2,7 @@ import axios from "axios";
 
 // Accedemos a la variable de entorno
 const API_URL =
-  import.meta.env.VITE_API_URL || "https://santeria-backend.onrender.com";
+  import.meta.env.VITE_API_URL;
 console.log("Intentando conectar a:", API_URL); // <--- REVISA ESTO EN LA CONSOLA
 
 const api = axios.create({

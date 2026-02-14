@@ -9,13 +9,19 @@ import {
   Table,
   TableHead,
   TableBody,
+  Chip,
+  Tooltip,
 } from "@mui/material";
 import {
   KeyboardArrowUp,
   KeyboardArrowDown,
   ReceiptLong,
+  Payments,
+  AccountBalance,
+  Print, // Ícono para el ticket
 } from "@mui/icons-material";
 import type { SaleResponse } from "../../types/sales";
+import { generateSaleTicket } from "../../utils/ticketGenerator"; // Asegúrate de tener esta utilidad
 
 export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
   const [open, setOpen] = useState(false);
@@ -23,12 +29,9 @@ export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
   // Función para formatear la fecha forzando Argentina (UTC-3)
   const formatToArgentina = (dateInput: string) => {
     let date = new Date(dateInput);
-
-    // Si el string no trae 'Z' ni el offset '-03:00', asumimos que el server lo mandó en UTC puro
     if (!dateInput.includes("Z") && !dateInput.includes("-03:00")) {
       date = new Date(dateInput + "Z");
     }
-
     return new Intl.DateTimeFormat("es-AR", {
       day: "2-digit",
       month: "2-digit",
@@ -40,11 +43,31 @@ export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
     }).format(date);
   };
 
+  // Manejador para generar el ticket desde el historial
+  const handlePrintTicket = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Evita que se abra el desplegable al hacer click en el ícono
+
+    // Adaptamos los datos del historial al formato que espera el generador
+    const ticketData = {
+      clientName: sale.client_name || "Consumidor Final",
+      paymentMethod: sale.payment_method || "EFECTIVO",
+      total: sale.total || 0,
+      items: sale.details.map((d) => ({
+        article_id: d.id,
+        title: d.article_title,
+        units: d.units,
+        unit_price: d.unit_price,
+      })),
+    };
+
+    generateSaleTicket(ticketData);
+  };
+
   return (
     <>
       <TableRow
         sx={{
-          bgcolor: open ? "rgba(233, 229, 15, 0.62)" : "inherit", // Bajé un poco la opacidad para que sea más legible
+          bgcolor: open ? "rgba(233, 229, 15, 0.2)" : "inherit",
           transition: "background-color 0.3s ease",
           "& > *": { borderBottom: "unset" },
         }}
@@ -55,27 +78,57 @@ export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
           </IconButton>
         </TableCell>
 
-        {/* Celda de Fecha Formateada */}
         <TableCell>{formatToArgentina(sale.date)}</TableCell>
 
         <TableCell>{sale.client_name || "Consumidor Final"}</TableCell>
 
-        {/* Mostrar el Vendedor */}
+        <TableCell>
+          <Chip
+            size="small"
+            icon={
+              sale.payment_method === "EFECTIVO" ? (
+                <Payments fontSize="small" />
+              ) : (
+                <AccountBalance fontSize="small" />
+              )
+            }
+            label={sale.payment_method || "EFECTIVO"}
+            color={sale.payment_method === "TRANSFERENCIA" ? "info" : "success"}
+            variant="outlined"
+            sx={{ fontWeight: "500", fontSize: "0.75rem" }}
+          />
+        </TableCell>
+
         <TableCell>
           <Typography variant="body2" color="text.secondary">
             {sale.seller_name}
           </Typography>
         </TableCell>
 
-        <TableCell align="right">
+        {/* 5. Columna de Total */}
+        <TableCell align="center">
           <Typography fontWeight="bold" color="primary.main">
             ${(sale.total ?? 0).toLocaleString()}
           </Typography>
         </TableCell>
+
+        {/* 6. Columna de Acción (PDF) */}
+        <TableCell align="center">
+          <Tooltip title="Reimprimir Ticket">
+            <IconButton
+              size="small"
+              color="secondary"
+              onClick={handlePrintTicket}
+            >
+              <Print fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </TableCell>
       </TableRow>
 
-      <TableRow sx={{ bgcolor: open ? "rgba(233, 229, 15, 0.62)" : "inherit" }}>
-        <TableCell sx={{ py: 0 }} colSpan={5}>
+      {/* Fila Desplegable */}
+      <TableRow sx={{ bgcolor: open ? "rgba(233, 229, 15, 0.1)" : "inherit" }}>
+        <TableCell sx={{ py: 0 }} colSpan={7}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box
               sx={{
@@ -89,17 +142,28 @@ export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
               <Typography
                 variant="subtitle2"
                 mb={1}
-                sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  color: "text.primary",
+                }}
               >
                 <ReceiptLong fontSize="small" /> Resumen de Artículos Vendidos
               </Typography>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Artículo</TableCell>
-                    <TableCell align="center">Cantidad</TableCell>
-                    <TableCell align="right">Precio Unit.</TableCell>
-                    <TableCell align="right">Subtotal</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Artículo</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: "bold" }}>
+                      Cantidad
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                      Precio Unit.
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                      Subtotal
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -110,7 +174,7 @@ export const SaleRow = ({ sale }: { sale: SaleResponse }) => {
                       <TableCell align="right">
                         ${(d.unit_price ?? 0).toLocaleString()}
                       </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: "500" }}>
+                      <TableCell align="right" sx={{ fontWeight: "600" }}>
                         ${(d.units * d.unit_price).toLocaleString()}
                       </TableCell>
                     </TableRow>

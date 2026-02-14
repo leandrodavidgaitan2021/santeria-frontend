@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useContext } from "react";
 import {
   Container,
   Box,
@@ -26,10 +26,9 @@ import { AdminSales } from "../components/admin/AdminSales";
 import { AdminPurchase } from "../components/admin/AdminPurchase";
 import { AdminExtractions } from "../components/admin/AdminExtractions";
 import { AdminStatistics } from "../components/admin/AdminStatistics";
-import { AdminUsers } from "../components/admin/AdminUsers"; // El componente que crearemos
+import { AdminUsers } from "../components/admin/AdminUsers";
 import { AdminProviders } from "../components/admin/AdminProviders";
-import { useContext } from "react";
-import { AuthContext } from "../context/AuthContext"; // Ajusta la ruta
+import { AuthContext } from "../context/AuthContext";
 
 const menuItems = [
   {
@@ -83,59 +82,26 @@ const menuItems = [
 ];
 
 export const AdminDashboard = () => {
-  const [activeView, setActiveView] = useState("menu");
+  // Inicializamos el estado desde localStorage para no perder la vista actual
+  const [activeView, setActiveView] = useState(() => {
+    return localStorage.getItem("lastAdminView") || "menu";
+  });
 
-  // Consumimos la información del AuthContext
   const { isAdmin } = useContext(AuthContext);
 
-  // Filtramos el menú según el booleano isAdmin
+  // Cada vez que activeView cambie, lo guardamos en el storage
+  useEffect(() => {
+    localStorage.setItem("lastAdminView", activeView);
+  }, [activeView]);
+
   const filteredMenuItems = menuItems.filter((item) => {
     if (!isAdmin) {
-      // Si NO es admin (es vendedor), solo ve estos dos
       return ["ventas", "articulos"].includes(item.id);
     }
-    // Si ES admin, ve todo
     return true;
   });
 
-  const renderContent = () => {
-    // Si el usuario NO es admin e intenta entrar a una vista restringida,
-    // lo forzamos a volver al menú.
-    const restrictedViews = [
-      "categorias",
-      "proveedores",
-      "compras",
-      "extracciones",
-      "estadisticas",
-      "usuarios",
-    ];
-
-    if (!isAdmin && restrictedViews.includes(activeView)) {
-      setActiveView("menu");
-      return renderMenu();
-    }
-
-    switch (activeView) {
-      case "articulos":
-        return <AdminArticles />;
-      case "categorias":
-        return <AdminCategories />;
-      case "proveedores":
-        return <AdminProviders />;
-      case "ventas":
-        return <AdminSales />;
-      case "compras":
-        return <AdminPurchase />;
-      case "extracciones":
-        return <AdminExtractions />;
-      case "estadisticas":
-        return <AdminStatistics />;
-      case "usuarios":
-        return <AdminUsers />; // <--- Renderiza el nuevo componente
-      default:
-        return renderMenu();
-    }
-  };
+  const handleBackToMenu = () => setActiveView("menu");
 
   const renderMenu = () => (
     <Box
@@ -146,7 +112,6 @@ export const AdminDashboard = () => {
         justifyContent: "center",
       }}
     >
-      {/* 3. Mapeamos el array FILTRADO, no el original */}
       {filteredMenuItems.map((item) => (
         <Paper
           key={item.id}
@@ -200,6 +165,43 @@ export const AdminDashboard = () => {
     </Box>
   );
 
+  const renderContent = () => {
+    const restrictedViews = [
+      "categorias",
+      "proveedores",
+      "compras",
+      "extracciones",
+      "estadisticas",
+      "usuarios",
+    ];
+
+    if (!isAdmin && restrictedViews.includes(activeView)) {
+      setActiveView("menu");
+      return renderMenu();
+    }
+
+    switch (activeView) {
+      case "articulos":
+        return <AdminArticles />;
+      case "categorias":
+        return <AdminCategories />;
+      case "proveedores":
+        return <AdminProviders />;
+      case "ventas":
+        return <AdminSales />;
+      case "compras":
+        return <AdminPurchase />;
+      case "extracciones":
+        return <AdminExtractions />;
+      case "estadisticas":
+        return <AdminStatistics />;
+      case "usuarios":
+        return <AdminUsers />;
+      default:
+        return renderMenu();
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 1 }}>
       <Box sx={{ mb: { xs: 1, sm: 2 } }}>
@@ -209,7 +211,7 @@ export const AdminDashboard = () => {
       {activeView !== "menu" && (
         <Button
           startIcon={<ArrowBack sx={{ color: "#d32f2f" }} />}
-          onClick={() => setActiveView("menu")}
+          onClick={handleBackToMenu}
           sx={{
             mb: 1,
             fontWeight: "bold",

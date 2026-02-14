@@ -1,5 +1,5 @@
 import {
-  Card, // Añadido
+  Card,
   CardContent,
   CardMedia,
   Typography,
@@ -16,7 +16,16 @@ interface Props {
 }
 
 export const ProductCard = ({ product }: Props) => {
-  // Lógica para el color del stock
+  // --- Lógica de Imagen ---
+  // Usamos la variable de entorno de Vite o el default de desarrollo de Flask
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  // Si product.image_url existe, concatenamos la base, si no, usamos el placeholder
+  const finalImageUrl = product.image_url
+    ? `${API_URL}${product.image_url}`
+    : `https://via.placeholder.com/300x200?text=${encodeURIComponent(product.title)}`;
+
+  // --- Lógica para el color del stock ---
   const isOutOfStock = product.stock <= 0;
   const stockColor =
     product.stock > 10 ? "success" : product.stock > 0 ? "warning" : "error";
@@ -43,8 +52,13 @@ export const ProductCard = ({ product }: Props) => {
       <CardMedia
         component="img"
         height="180"
-        image={`https://via.placeholder.com/300x200?text=${encodeURIComponent(product.title)}`}
+        image={finalImageUrl}
         alt={product.title}
+        sx={{
+          objectFit: "cover",
+          // Pequeño truco: si la imagen real falla, podrías manejar un error aquí
+          bgcolor: "grey.100",
+        }}
       />
 
       <CardContent
@@ -67,7 +81,7 @@ export const ProductCard = ({ product }: Props) => {
             {product.title}
           </Typography>
           <Chip
-            label={`$${product.final_price}`}
+            label={`$${product.final_price.toLocaleString()}`}
             color="primary"
             size="small"
             sx={{ fontWeight: "bold" }}

@@ -11,6 +11,7 @@ export interface CashMovementResponse {
   type: CashMovementType;
   amount: number;
   description: string;
+  payment_method: string;
   sale_id: number | null;
   purchase_id: number | null;
 }
@@ -19,6 +20,7 @@ export interface ExtractionData {
   amount: number;
   reason: string;
   person: string;
+  payment_method: string;
 }
 
 export interface CashBalanceResponse {

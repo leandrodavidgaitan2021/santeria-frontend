@@ -10,7 +10,6 @@ import {
   TableHead,
   TableRow,
   Chip,
-  Stack,
   ToggleButton,
   ToggleButtonGroup,
   CircularProgress,
@@ -24,7 +23,8 @@ import {
   TrendingUp,
   TrendingDown,
   History,
-  EventNote, // Icono para el año
+  EventNote,
+  Payments,
 } from "@mui/icons-material";
 import { cashService } from "../../services/cashService";
 import type { CashMovementResponse } from "../../types/cash";
@@ -37,9 +37,6 @@ export const AdminStatistics = () => {
 
   const isMounted = useRef(false);
 
-  /**
-   * Carga de datos con soporte para filtros temporales y TOTAL
-   */
   const fetchData = useCallback(async (filterType: string) => {
     setLoading(true);
     try {
@@ -47,7 +44,10 @@ export const AdminStatistics = () => {
       let fromDate = "";
 
       if (filterType === "today") {
-        fromDate = now.toISOString().split("T")[0];
+        fromDate = new Intl.DateTimeFormat("fr-CA", {
+          // fr-CA devuelve YYYY-MM-DD
+          timeZone: "America/Argentina/Buenos_Aires",
+        }).format(now);
       } else if (filterType === "week") {
         const weekAgo = new Date();
         weekAgo.setDate(now.getDate() - 7);
@@ -55,10 +55,8 @@ export const AdminStatistics = () => {
       } else if (filterType === "month") {
         fromDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
       } else if (filterType === "year") {
-        // Filtro Anual: desde el 1 de enero del año actual
         fromDate = `${now.getFullYear()}-01-01`;
       }
-      // Si es "total", fromDate queda como "" para traer todo el historial
 
       const [movementsData, balanceData] = await Promise.all([
         cashService.getMovements(fromDate),
@@ -91,6 +89,15 @@ export const AdminStatistics = () => {
     }
   };
 
+  // --- CÁLCULOS FILTRADOS POR MÉTODO ---
+  const efectivoDisp = movements
+    .filter((m) => m.payment_method === "EFECTIVO")
+    .reduce((acc, curr) => acc + curr.amount, 0);
+
+  const transferenciaDisp = movements
+    .filter((m) => m.payment_method === "TRANSFERENCIA")
+    .reduce((acc, curr) => acc + curr.amount, 0);
+
   const ingresos = movements
     .filter((m) => m.amount > 0)
     .reduce((acc, curr) => acc + curr.amount, 0);
@@ -101,36 +108,22 @@ export const AdminStatistics = () => {
 
   const formatCurrency = (val: number) => `$${val.toLocaleString("es-AR")}`;
 
-  const getPeriodText = () => {
-    switch (filter) {
-      case "today":
-        return "de Hoy";
-      case "week":
-        return "de la Semana";
-      case "month":
-        return "del Mes";
-      case "year":
-        return "del Año";
-      default:
-        return "Históricos (Total)";
-    }
-  };
-
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
       {/* HEADER Y FILTROS */}
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        justifyContent="space-between"
-        alignItems="center"
-        mb={4}
-        spacing={2}
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 2,
+        }}
       >
         <Typography variant="h4" fontWeight="bold">
           Estadísticas
         </Typography>
-
-        <Stack direction="row" alignItems="center" spacing={2}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           {loading && <CircularProgress size={20} />}
           <ToggleButtonGroup
             value={filter}
@@ -155,18 +148,16 @@ export const AdminStatistics = () => {
               <CalendarToday sx={{ mr: 1, fontSize: 18 }} /> Día
             </ToggleButton>
           </ToggleButtonGroup>
-        </Stack>
-      </Stack>
+        </Box>
+      </Box>
 
-      {/* TARJETAS DE RESUMEN */}
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 5 }}>
-        {/* SALDO REAL ACTUAL */}
-      {/* SALDO REAL ACTUAL (Versión Compacta) */}
+      {/* CONTENEDOR DE SALDOS (FLEXBOX) */}
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+        {/* Saldo Total */}
         <Paper
           elevation={4}
           sx={{
-            py: 2, // Reducimos padding vertical (antes era p: 4)
-            px: 3,
+            p: 2,
             flex: "1 1 100%",
             bgcolor: "primary.dark",
             color: "white",
@@ -174,165 +165,208 @@ export const AdminStatistics = () => {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            borderBottom: "4px solid #1565c0", // Línea un poco más delgada
+            borderBottom: "4px solid #1565c0",
           }}
         >
-          <AccountBalance sx={{ mb: 0.5, opacity: 0.8, fontSize: 24 }} /> {/* Icono más chico */}
+          <AccountBalance sx={{ mb: 0.5, opacity: 0.8, fontSize: 24 }} />
           <Typography
-            sx={{ 
-              opacity: 0.8, 
-              textTransform: "uppercase", 
-              fontSize: "0.65rem", // Texto más pequeño
-              letterSpacing: 0.5 
-            }}
             variant="caption"
-            fontWeight="bold"
+            sx={{
+              opacity: 0.8,
+              textTransform: "uppercase",
+              fontSize: "0.65rem",
+              fontWeight: "bold",
+            }}
           >
-            Efectivo Real Disponible en Caja
+            Saldo Neto Total (Caja + Banco)
           </Typography>
-          <Typography 
-            variant="h4" // Bajamos de h2 a h4 para ganar mucho espacio vertical
-            fontWeight="bold"
-            sx={{ mt: 0.5 }}
-          >
+          <Typography variant="h4" fontWeight="bold">
             {formatCurrency(balance)}
           </Typography>
         </Paper>
 
-        {/* TARJETAS DINÁMICAS */}
+        {/* Efectivo */}
         <Paper
           elevation={2}
           sx={{
-            p: 3,
-            flex: "1 1 250px",
+            p: 2,
+            flex: "1 1 280px",
+            borderRadius: 3,
             borderLeft: "6px solid #2e7d32",
-            borderRadius: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 2,
           }}
         >
-          <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-            <TrendingUp color="success" fontSize="small" />
+          <Payments color="success" fontSize="large" />
+          <Box>
             <Typography
+              variant="caption"
               color="textSecondary"
-              variant="body2"
-              fontWeight="medium"
+              fontWeight="bold"
             >
-              Ingresos {getPeriodText()}
+              EFECTIVO EN MANO
             </Typography>
-          </Stack>
-          <Typography variant="h5" fontWeight="bold" color="success.main">
-            {formatCurrency(ingresos)}
-          </Typography>
+            <Typography variant="h5" fontWeight="bold" color="success.main">
+              {formatCurrency(efectivoDisp)}
+            </Typography>
+          </Box>
         </Paper>
 
+        {/* Transferencia */}
         <Paper
           elevation={2}
           sx={{
-            p: 3,
-            flex: "1 1 250px",
-            borderLeft: "6px solid #d32f2f",
-            borderRadius: 2,
-          }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-            <TrendingDown color="error" fontSize="small" />
-            <Typography
-              color="textSecondary"
-              variant="body2"
-              fontWeight="medium"
-            >
-              Egresos {getPeriodText()}
-            </Typography>
-          </Stack>
-          <Typography variant="h5" fontWeight="bold" color="error.main">
-            {formatCurrency(egresos)}
-          </Typography>
-        </Paper>
-
-        <Paper
-          elevation={2}
-          sx={{
-            p: 3,
-            flex: "1 1 250px",
+            p: 2,
+            flex: "1 1 280px",
+            borderRadius: 3,
             borderLeft: "6px solid #0288d1",
-            borderRadius: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 2,
           }}
         >
-          <Typography
-            color="textSecondary"
-            variant="body2"
-            fontWeight="medium"
-            mb={1}
-          >
-            Balance Neto {getPeriodText()}
-          </Typography>
-          <Typography variant="h5" fontWeight="bold" color="info.main">
-            {ingresos - egresos >= 0 ? "+" : ""}
-            {formatCurrency(ingresos - egresos)}
-          </Typography>
+          <AccountBalance color="info" fontSize="large" />
+          <Box>
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              fontWeight="bold"
+            >
+              BANCO / VIRTUAL
+            </Typography>
+            <Typography variant="h5" fontWeight="bold" color="info.main">
+              {formatCurrency(transferenciaDisp)}
+            </Typography>
+          </Box>
         </Paper>
       </Box>
 
-      {/* TABLA */}
-      <Typography
-        variant="h6"
-        fontWeight="bold"
-        mb={2}
-        sx={{ display: "flex", alignItems: "center", gap: 1 }}
-      >
-        <History /> Movimientos {getPeriodText()}
-      </Typography>
+      {/* MÉTRICAS DE RENDIMIENTO (FLEXBOX) */}
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+        <Paper
+          sx={{
+            p: 2,
+            flex: "1 1 200px",
+            borderRadius: 2,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Box>
+            <Typography variant="caption" color="textSecondary">
+              INGRESOS (+)
+            </Typography>
+            <Typography variant="h6" color="success.main" fontWeight="bold">
+              {formatCurrency(ingresos)}
+            </Typography>
+          </Box>
+          <TrendingUp color="success" />
+        </Paper>
+        <Paper
+          sx={{
+            p: 2,
+            flex: "1 1 200px",
+            borderRadius: 2,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Box>
+            <Typography variant="caption" color="textSecondary">
+              EGRESOS (-)
+            </Typography>
+            <Typography variant="h6" color="error.main" fontWeight="bold">
+              {formatCurrency(egresos)}
+            </Typography>
+          </Box>
+          <TrendingDown color="error" />
+        </Paper>
+      </Box>
 
-      <TableContainer
-        component={Paper}
-        variant="outlined"
-        sx={{ borderRadius: 2 }}
-      >
-        <Table size="small">
-          <TableHead sx={{ bgcolor: "#f8f9fa" }}>
-            <TableRow>
-              <TableCell sx={{ fontWeight: "bold" }}>Fecha</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>Tipo</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>Descripción</TableCell>
-              <TableCell align="right" sx={{ fontWeight: "bold" }}>
-                Monto
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {movements.map((m) => (
-              <TableRow key={m.id} hover>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>
-                  {new Date(m.date).toLocaleDateString("es-AR")}{" "}
-                  {new Date(m.date).toLocaleTimeString("es-AR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={m.type}
-                    size="small"
-                    color={m.amount >= 0 ? "success" : "error"}
-                    variant="outlined"
-                    sx={{ fontWeight: "bold" }}
-                  />
-                </TableCell>
-                <TableCell>{m.description}</TableCell>
-                <TableCell
-                  align="right"
-                  sx={{
-                    fontWeight: "bold",
-                    color: m.amount >= 0 ? "success.main" : "error.main",
-                  }}
-                >
-                  {m.amount >= 0 ? "+" : "-"}{" "}
-                  {formatCurrency(Math.abs(m.amount))}
+      {/* TABLA DE MOVIMIENTOS */}
+      <Box>
+        <Typography
+          variant="h6"
+          fontWeight="bold"
+          mb={2}
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
+          <History /> Últimos Movimientos
+        </Typography>
+        <TableContainer
+          component={Paper}
+          variant="outlined"
+          sx={{ borderRadius: 2 }}
+        >
+          <Table size="small">
+            <TableHead sx={{ bgcolor: "#f8f9fa" }}>
+              <TableRow>
+                <TableCell sx={{ fontWeight: "bold" }}>Fecha</TableCell>
+                <TableCell sx={{ fontWeight: "bold" }}>Tipo</TableCell>
+                <TableCell sx={{ fontWeight: "bold" }}>Método</TableCell>
+                <TableCell sx={{ fontWeight: "bold" }}>Descripción</TableCell>
+                <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                  Monto
                 </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {movements.map((m) => (
+                <TableRow key={m.id} hover>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    {new Date(m.date).toLocaleDateString("es-AR", {
+                      timeZone: "America/Argentina/Buenos_Aires",
+                    })}{" "}
+                    {new Date(m.date).toLocaleTimeString("es-AR", {
+                      timeZone: "America/Argentina/Buenos_Aires",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false, // <-- Esto quita el AM/PM y fuerza 24hs
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={m.type}
+                      size="small"
+                      color={m.amount >= 0 ? "success" : "error"}
+                      variant="outlined"
+                      sx={{ fontWeight: "bold" }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={m.payment_method}
+                      size="small"
+                      // Cambiamos "tonal" por "outlined" o "filled"
+                      variant={
+                        m.payment_method === "EFECTIVO" ? "outlined" : "filled"
+                      }
+                      color={
+                        m.payment_method === "EFECTIVO" ? "default" : "info"
+                      }
+                      sx={{ fontSize: "0.7rem", fontWeight: "bold" }}
+                    />
+                  </TableCell>
+                  <TableCell>{m.description}</TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{
+                      fontWeight: "bold",
+                      color: m.amount >= 0 ? "success.main" : "error.main",
+                    }}
+                  >
+                    {m.amount >= 0 ? "+" : "-"}{" "}
+                    {formatCurrency(Math.abs(m.amount))}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
     </Box>
   );
 };

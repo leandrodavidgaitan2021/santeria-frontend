@@ -18,17 +18,22 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Add, Edit, LocalShipping as ProviderIcon } from "@mui/icons-material";
-import { useProviders } from "../../hooks/useProviders"; // Necesitarás crear este hook
+import { useProviders } from "../../hooks/useProviders";
 import { useNotify } from "../../hooks/useNotify";
+import { useConfirm } from "../../hooks/useConfirm"; // Importado
 
 export const AdminProviders = () => {
   const { providers, addProvider, updateProvider, loading } = useProviders();
   const { showMsg } = useNotify();
+  const { confirm } = useConfirm(); // Inicializado
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [contactInfo, setContactInfo] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Estado para el feedback de carga en acciones
+  const [actionLoading, setActionLoading] = useState(false);
 
   const handleOpen = (
     id: number | null = null,
@@ -42,6 +47,7 @@ export const AdminProviders = () => {
   };
 
   const handleClose = () => {
+    if (actionLoading) return; // Bloquear cierre si está guardando
     setOpen(false);
     setName("");
     setContactInfo("");
@@ -51,21 +57,41 @@ export const AdminProviders = () => {
   const handleSubmit = async () => {
     if (!name.trim()) return;
 
+    // Lógica de confirmación
+    const isEditing = !!selectedId;
+    const ok = await confirm({
+      title: isEditing ? "Actualizar Proveedor" : "Registrar Proveedor",
+      description: isEditing
+        ? `¿Deseas guardar los cambios para "${name}"?`
+        : `¿Estás seguro de registrar a "${name}" como nuevo proveedor?`,
+      confirmText: isEditing ? "Actualizar" : "Registrar",
+      severity: "primary",
+    });
+
+    if (!ok) return;
+
+    setActionLoading(true);
+
     try {
       const providerData = { name, contact_info: contactInfo };
 
       if (selectedId) {
         await updateProvider(selectedId, providerData);
-        showMsg("Proveedor actualizado con éxito");
+        showMsg("Proveedor actualizado con éxito", "success");
       } else {
         await addProvider(providerData);
-        showMsg("Proveedor registrado correctamente");
+        showMsg("Proveedor registrado correctamente", "success");
       }
-      handleClose();
+      setOpen(false);
+      setName("");
+      setContactInfo("");
+      setSelectedId(null);
     } catch (err: unknown) {
       const mensaje =
         (err as { message?: string })?.message || "Error inesperado";
       showMsg(mensaje, "error");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -89,7 +115,11 @@ export const AdminProviders = () => {
           variant="contained"
           startIcon={<Add />}
           onClick={() => handleOpen()}
-          sx={{ bgcolor: "#1976d2", textTransform: "none" }} // Azul para diferenciar de categorías
+          sx={{
+            bgcolor: "#1976d2",
+            textTransform: "none",
+            "&:hover": { bgcolor: "#115293" },
+          }}
         >
           Nuevo
         </Button>
@@ -98,7 +128,7 @@ export const AdminProviders = () => {
       <Paper elevation={1} sx={{ borderRadius: 2, overflow: "hidden" }}>
         {loading ? (
           <Box p={3} textAlign="center">
-            <CircularProgress size={24} />
+            <CircularProgress size={24} color="primary" />
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
@@ -112,6 +142,7 @@ export const AdminProviders = () => {
                         handleOpen(prov.id, prov.name, prov.contact_info || "")
                       }
                       color="primary"
+                      disabled={actionLoading}
                     >
                       <Edit fontSize="small" />
                     </IconButton>
@@ -127,7 +158,9 @@ export const AdminProviders = () => {
                   />
                   <ListItemText
                     primary={prov.name}
-                    secondary={prov.contact_info}
+                    secondary={
+                      prov.contact_info || "Sin información de contacto"
+                    }
                     primaryTypographyProps={{
                       fontSize: { xs: "0.9rem", sm: "1rem" },
                       fontWeight: 500,
@@ -157,7 +190,13 @@ export const AdminProviders = () => {
         )}
       </Paper>
 
-      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xs">
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        fullWidth
+        maxWidth="xs"
+        slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+      >
         <DialogTitle sx={{ fontSize: "1.1rem", fontWeight: "bold" }}>
           {selectedId ? "Editar Proveedor" : "Nuevo Proveedor"}
         </DialogTitle>
@@ -169,7 +208,11 @@ export const AdminProviders = () => {
               size="small"
               label="Nombre de la empresa/proveedor"
               value={name}
+              disabled={actionLoading}
               onChange={(e) => setName(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && name.trim()) handleSubmit();
+              }}
             />
             <TextField
               fullWidth
@@ -179,6 +222,7 @@ export const AdminProviders = () => {
               label="Información de contacto"
               placeholder="Teléfono, Email o Dirección..."
               value={contactInfo}
+              disabled={actionLoading}
               onChange={(e) => setContactInfo(e.target.value)}
             />
           </Stack>
@@ -187,6 +231,7 @@ export const AdminProviders = () => {
           <Button
             onClick={handleClose}
             size="small"
+            disabled={actionLoading}
             sx={{ color: "text.secondary" }}
           >
             Cancelar
@@ -195,9 +240,14 @@ export const AdminProviders = () => {
             onClick={handleSubmit}
             variant="contained"
             size="small"
-            disabled={!name.trim()}
+            disabled={!name.trim() || actionLoading}
+            sx={{ minWidth: 80 }}
           >
-            Guardar
+            {actionLoading ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Guardar"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

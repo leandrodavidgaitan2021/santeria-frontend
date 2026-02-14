@@ -1,6 +1,4 @@
-// AdminArticles.tsx
-import { useState, useContext } from "react";
-import { AuthContext } from "../../context/AuthContext"; // Ajusta la ruta a tu AuthContext
+import { useState, useContext, type ChangeEvent } from "react";
 import {
   Box,
   Typography,
@@ -19,36 +17,61 @@ import {
   Divider,
   CircularProgress,
   MenuItem,
+  Avatar,
 } from "@mui/material";
-import { Add, Edit, Inventory as ArtIcon } from "@mui/icons-material";
+import {
+  Add,
+  Edit,
+  Inventory as ArtIcon,
+  PhotoCamera,
+  Delete,
+} from "@mui/icons-material";
+import { AuthContext } from "../../context/AuthContext";
 import { useArticles } from "../../hooks/useArticles";
 import { useCategories } from "../../hooks/useCategory";
 import { useProviders } from "../../hooks/useProviders";
 import { useNotify } from "../../hooks/useNotify";
+import { useConfirm } from "../../hooks/useConfirm";
 import type { Article } from "../../types";
 
-interface ArticleForm {
+interface ArticleFormState {
   title: string;
-  content: string; // Obligatorio para la DB
+  content: string;
   unit_price: number;
   profit_margin: number;
   final_price: number;
   stock: number;
   category_id: number | "";
   provider_id: number | "";
+  image: File | null;
+}
+
+export interface ArticleSubmissionData {
+  title: string;
+  content: string;
+  unit_price: number;
+  profit_margin: number;
+  final_price: number;
+  stock: number;
+  category_id: number;
+  provider_id: number;
+  image: File | null;
 }
 
 export const AdminArticles = () => {
-  const { isAdmin } = useContext(AuthContext); // Extraemos el booleano
+  const { isAdmin } = useContext(AuthContext);
   const { articles, addArticle, updateArticle, loading } = useArticles();
   const { categories } = useCategories();
   const { providers } = useProviders();
+  const { confirm } = useConfirm();
   const { showMsg } = useNotify();
 
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState<ArticleForm>({
+  const [formData, setFormData] = useState<ArticleFormState>({
     title: "",
     content: "",
     unit_price: 0,
@@ -57,14 +80,25 @@ export const AdminArticles = () => {
     stock: 0,
     category_id: "",
     provider_id: "",
+    image: null,
   });
 
-  // Función auxiliar para calcular precio redondeado
-  const calculateFinal = (price: number, margin: number) => {
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const calculateFinal = (price: number, margin: number): number => {
     return Math.round(price * (1 + margin / 100));
   };
 
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setFormData((prev) => ({ ...prev, image: file }));
+      setPreview(URL.createObjectURL(file));
+    }
+  };
+
   const handleOpen = (article: Article | null = null) => {
+    setPreview(null);
     if (article) {
       setSelectedId(article.id);
       setFormData({
@@ -76,7 +110,11 @@ export const AdminArticles = () => {
         stock: article.stock,
         category_id: article.category_id,
         provider_id: article.provider_id,
+        image: null,
       });
+      if (article.image_url) {
+        setPreview(`${API_URL}${article.image_url}`);
+      }
     } else {
       setSelectedId(null);
       setFormData({
@@ -88,45 +126,59 @@ export const AdminArticles = () => {
         stock: 0,
         category_id: "",
         provider_id: "",
+        image: null,
       });
     }
     setOpen(true);
   };
 
   const handleSubmit = async () => {
-    // Bloqueo de seguridad en la función
     if (!isAdmin) {
-      showMsg("No tienes permisos para realizar esta acción", "error");
+      showMsg("No tienes permisos", "error");
       return;
     }
+
     if (
       !formData.title ||
       formData.category_id === "" ||
       formData.provider_id === ""
     ) {
-      showMsg("Por favor completa los campos obligatorios", "error");
+      showMsg("Completa los campos obligatorios", "error");
       return;
     }
 
-    const submissionData: Partial<Article> = {
+    const submission: ArticleSubmissionData = {
       ...formData,
-      category_id: Number(formData.category_id),
-      provider_id: Number(formData.provider_id),
-      // Enviamos el final_price que ya está en el estado (calculado al escribir)
+      category_id: formData.category_id as number,
+      provider_id: formData.provider_id as number,
     };
+
+    const isEditing = !!selectedId;
+    const ok = await confirm({
+      title: isEditing ? "Confirmar Actualización" : "Confirmar Nuevo Artículo",
+      description: `¿Estás seguro de guardar "${formData.title}"?`,
+      confirmText: isEditing ? "Actualizar" : "Crear",
+      severity: isEditing ? "primary" : "warning",
+    });
+
+    if (!ok) return;
+
+    setActionLoading(true);
 
     try {
       if (selectedId) {
-        await updateArticle(selectedId, submissionData);
-        showMsg("Artículo actualizado");
+        await updateArticle(selectedId, submission);
+        showMsg("Artículo actualizado", "success");
       } else {
-        await addArticle(submissionData);
-        showMsg("Artículo creado");
+        await addArticle(submission);
+        showMsg("Artículo creado", "success");
       }
       setOpen(false);
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      showMsg(error.message || "Error al guardar", "error");
+      const error = err as Error;
+      showMsg(error.message || "Error al procesar", "error");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -135,33 +187,22 @@ export const AdminArticles = () => {
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
-        alignItems={{ xs: "stretch", sm: "center" }} // stretch hace que el botón ocupe el ancho en móvil
+        alignItems={{ xs: "stretch", sm: "center" }}
         spacing={1}
         mb={1}
       >
-        <Typography
-          variant="h5"
-          fontWeight="bold"
-          color="primary.main"
-          sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} // Achicamos la fuente manualmente
-        >
+        <Typography variant="h5" fontWeight="bold" color="primary.main">
           Inventario de Santería
         </Typography>
 
-        {/* RESTRICCIÓN 1: Ocultar o deshabilitar botón Nuevo */}
         {isAdmin && (
           <Button
             variant="contained"
             startIcon={<Add />}
             onClick={() => handleOpen()}
             color="success"
-            // Usamos sx para controlar el tamaño y padding en lugar de la prop size
-            sx={{
-              py: { xs: 0.5, sm: 1 },
-              px: { xs: 2, sm: 3 },
-              fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              textTransform: "none", // Opcional: evita que esté todo en mayúsculas
-            }}
+            size="small"
+            sx={{ textTransform: "none" }}
           >
             Nuevo Artículo
           </Button>
@@ -178,61 +219,39 @@ export const AdminArticles = () => {
             {articles.map((art, index) => (
               <Box key={art.id}>
                 <ListItem
-                  sx={{ py: 0.8 }} // Reducido de 1.5 a 0.8 (menos espacio entre filas)
+                  sx={{ py: 1 }}
                   secondaryAction={
-                    /* RESTRICCIÓN 2: Solo mostrar botón Editar si es Admin */
                     isAdmin && (
                       <IconButton
-                        edge="end"
                         onClick={() => handleOpen(art)}
                         color="primary"
+                        size="small"
                       >
                         <Edit fontSize="small" />
                       </IconButton>
                     )
                   }
                 >
-                  <ArtIcon sx={{ mr: 2, color: "text.secondary" }} />
-                  <ListItemText
-                    primary={art.title}
-                    secondary={
-                      <Typography variant="caption" color="text.secondary">
-                        {`Stock: ${art.stock} `}
+                  <Avatar
+                    variant="rounded"
+                    src={art.image_url ? `${API_URL}${art.image_url}` : ""}
+                    sx={{ mr: 2, width: 40, height: 40, bgcolor: "grey.100" }}
+                  >
+                    <ArtIcon fontSize="small" />
+                  </Avatar>
 
-                        {/* Este componente se oculta en celular */}
-                        <Box
-                          component="span"
-                          sx={{ display: { xs: "none", sm: "inline" } }}
-                        >
-                          {`| Costo: $${art.unit_price || "S/N"}  `}
-                          {`| Categoría: ${art.category?.name || "S/N"}  `}
-                          {`| Proveedor: ${art.provider?.name || "S/N"}`}
-                        </Box>
+                  <ListItemText
+                    primary={
+                      <Typography variant="body2" fontWeight="500">
+                        {art.title}
                       </Typography>
                     }
-                    sx={{ my: 0 }}
+                    secondary={`Stock: ${art.stock} | ${art.category?.name || "S/C"}`}
                   />
+
                   <Typography
-                    variant="subtitle1" // Un punto más grande que subtitle2
-                    sx={{
-                      fontWeight: "800", // Más grueso para que resalte
-                      mr: 1,
-                      // Opción A: Verde éxito (más común en precios)
-                      //color: "success.main",
-
-                      // Opción B: Azul marca (más sobrio)
-                      //olor: "primary.main",
-
-                      // Opción C: Un naranja fuerte (resalta mucho)
-                      color: "#e65100",
-
-                      backgroundColor: "rgba(46, 125, 50, 0.08)", // Un fondo muy sutil para resaltar el área
-                      px: 1,
-                      py: 0.5,
-                      borderRadius: 1,
-                      minWidth: "50px",
-                      textAlign: "right",
-                    }}
+                    variant="body2"
+                    sx={{ fontWeight: "800", mr: 2, color: "#e65100" }}
                   >
                     ${art.final_price.toLocaleString()}
                   </Typography>
@@ -243,47 +262,110 @@ export const AdminArticles = () => {
           </List>
         )}
       </Paper>
-      {/* RESTRICCIÓN 3: El Dialog podría cerrarse o no permitir guardar si no es admin */}
+
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => !actionLoading && setOpen(false)}
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle sx={{ fontWeight: "bold", pb: 1 }}>
-          {" "}
-          {/* Menos padding abajo del título */}
+        <DialogTitle sx={{ fontWeight: "bold", fontSize: "1.1rem", py: 1.5 }}>
           {selectedId ? "Editar" : "Nuevo"} Artículo
         </DialogTitle>
 
-        <DialogContent dividers sx={{ pt: 2, pb: 1 }}>
-          {" "}
-          {/* Padding interno ajustado */}
-          <Stack spacing={1.8} sx={{ mt: 0.5 }}>
-            {" "}
-            {/* Separación entre inputs más moderada */}
+        <DialogContent dividers sx={{ py: 2 }}>
+          <Stack spacing={1.5}>
+            <Box
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
+              gap={1}
+              mb={0.5}
+            >
+              {preview ? (
+                <Box position="relative">
+                  <Box
+                    component="img"
+                    src={preview}
+                    sx={{
+                      width: 100,
+                      height: 100,
+                      borderRadius: 2,
+                      objectFit: "cover",
+                      border: "1px solid #ddd",
+                    }}
+                  />
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => {
+                      setPreview(null);
+                      setFormData((prev) => ({ ...prev, image: null }));
+                    }}
+                    sx={{
+                      position: "absolute",
+                      top: -8,
+                      right: -8,
+                      bgcolor: "white",
+                      boxShadow: 1,
+                      p: 0.5,
+                    }}
+                  >
+                    <Delete fontSize="inherit" />
+                  </IconButton>
+                </Box>
+              ) : (
+                <Button
+                  variant="outlined"
+                  component="label"
+                  fullWidth
+                  startIcon={<PhotoCamera />}
+                  size="small"
+                  sx={{
+                    py: 2,
+                    borderStyle: "dashed",
+                    flexDirection: "column",
+                    fontSize: "0.75rem",
+                  }}
+                >
+                  Subir Foto
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={handleFileChange}
+                  />
+                </Button>
+              )}
+            </Box>
+
             <TextField
               label="Nombre del Producto"
               fullWidth
+              size="small"
               value={formData.title}
               onChange={(e) =>
                 setFormData({ ...formData, title: e.target.value })
               }
             />
+
             <TextField
-              label="Contenido / Descripción"
+              label="Descripción"
               fullWidth
               multiline
               rows={2}
+              size="small"
               value={formData.content}
               onChange={(e) =>
                 setFormData({ ...formData, content: e.target.value })
               }
             />
-            <Stack direction="row" spacing={1.5}>
+
+            <Stack direction="row" spacing={1}>
               <TextField
                 label="Costo ($)"
                 type="number"
+                size="small"
                 fullWidth
                 value={formData.unit_price}
                 onChange={(e) => {
@@ -294,12 +376,11 @@ export const AdminArticles = () => {
                     final_price: calculateFinal(val, formData.profit_margin),
                   });
                 }}
-                // Esta línea selecciona el contenido al hacer foco
-                onFocus={(e) => e.target.select()}
               />
               <TextField
                 label="Margen (%)"
                 type="number"
+                size="small"
                 fullWidth
                 value={formData.profit_margin}
                 onChange={(e) => {
@@ -310,12 +391,11 @@ export const AdminArticles = () => {
                     final_price: calculateFinal(formData.unit_price, val),
                   });
                 }}
-                // Esta línea selecciona el contenido al hacer foco
-                onFocus={(e) => e.target.select()}
               />
               <TextField
-                label="Precio Final ($)"
+                label="Final ($)"
                 type="number"
+                size="small"
                 fullWidth
                 value={formData.final_price}
                 onChange={(e) =>
@@ -324,61 +404,62 @@ export const AdminArticles = () => {
                     final_price: Number(e.target.value),
                   })
                 }
-                sx={{
-                  backgroundColor: "#f9f9f9",
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": { borderColor: "#ddd" },
-                  },
-                }}
-                // Esta línea selecciona el contenido al hacer foco
-                onFocus={(e) => e.target.select()}
               />
             </Stack>
-            <Stack direction="row" spacing={1.5}>
+
+            <Stack direction="row" spacing={1}>
               <TextField
                 label="Stock"
                 type="number"
+                size="small"
                 fullWidth
                 value={formData.stock}
                 onChange={(e) =>
                   setFormData({ ...formData, stock: Number(e.target.value) })
                 }
-                // Esta línea selecciona el contenido al hacer foco
-                onFocus={(e) => e.target.select()}
               />
               <TextField
                 select
                 label="Categoría"
                 fullWidth
+                size="small"
                 value={formData.category_id}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    category_id: Number(e.target.value), // Convertimos a número directamente
+                    category_id:
+                      e.target.value === "" ? "" : Number(e.target.value),
                   })
                 }
               >
                 {categories.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>
+                  <MenuItem
+                    key={c.id}
+                    value={c.id}
+                    sx={{ fontSize: "0.85rem" }}
+                  >
                     {c.name}
                   </MenuItem>
                 ))}
               </TextField>
             </Stack>
+
             <TextField
               select
               label="Proveedor"
               fullWidth
+              size="small"
               value={formData.provider_id}
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  provider_id: Number(e.target.value), // Convertimos a número directamente
+                  provider_id:
+                    e.target.value === "" ? "" : Number(e.target.value),
                 })
               }
             >
               {providers.map((p) => (
-                <MenuItem key={p.id} value={p.id}>
+                <MenuItem key={p.id} value={p.id} sx={{ fontSize: "0.85rem" }}>
                   {p.name}
                 </MenuItem>
               ))}
@@ -386,14 +467,28 @@ export const AdminArticles = () => {
           </Stack>
         </DialogContent>
 
-        <DialogActions sx={{ px: 3, py: 1.5 }}>
-          <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          {/* Ocultamos el botón guardar en el modal por si el usuario llega a abrirlo */}
-          {isAdmin && (
-            <Button variant="contained" onClick={handleSubmit} color="success">
-              Guardar
-            </Button>
-          )}
+        <DialogActions sx={{ p: 2, pt: 1 }}>
+          <Button
+            onClick={() => setOpen(false)}
+            disabled={actionLoading}
+            size="small"
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            color="success"
+            disabled={actionLoading}
+            size="small"
+            sx={{ minWidth: 90 }}
+          >
+            {actionLoading ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Guardar"
+            )}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

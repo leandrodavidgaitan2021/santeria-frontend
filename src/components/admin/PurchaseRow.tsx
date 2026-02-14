@@ -9,11 +9,14 @@ import {
   Table,
   TableHead,
   TableBody,
+  Chip,
 } from "@mui/material";
 import {
   KeyboardArrowUp,
   KeyboardArrowDown,
   Receipt,
+  Payments,
+  AccountBalance,
 } from "@mui/icons-material";
 import type { PurchaseResponse } from "../../types/purchase";
 
@@ -23,8 +26,6 @@ export const PurchaseRow = ({ purchase }: { purchase: PurchaseResponse }) => {
   // Función de normalización de fecha para Argentina (UTC-3)
   const formatToArgentina = (dateInput: string) => {
     let date = new Date(dateInput);
-
-    // Si el string no tiene indicador de zona, asumimos que viene del servidor en UTC
     if (!dateInput.includes("Z") && !dateInput.includes("-03:00")) {
       date = new Date(dateInput + "Z");
     }
@@ -44,7 +45,7 @@ export const PurchaseRow = ({ purchase }: { purchase: PurchaseResponse }) => {
     <>
       <TableRow
         sx={{
-          bgcolor: open ? "rgba(233, 229, 15, 0.62)" : "inherit", // Bajé un poco la opacidad para que sea más legible
+          bgcolor: open ? "rgba(25, 118, 210, 0.08)" : "inherit", // Color azul tenue al abrir
           transition: "background-color 0.3s ease",
           "& > *": { borderBottom: "unset" },
         }}
@@ -55,45 +56,69 @@ export const PurchaseRow = ({ purchase }: { purchase: PurchaseResponse }) => {
           </IconButton>
         </TableCell>
 
-        {/* Celda de Fecha con hora de Argentina */}
         <TableCell>{formatToArgentina(purchase.date)}</TableCell>
 
-        <TableCell>{purchase.provider_name}</TableCell>
+        <TableCell sx={{ fontWeight: "medium" }}>
+          {purchase.provider_name}
+        </TableCell>
+
+        {/* Chip dinámico según el método de pago */}
+        <TableCell>
+          <Chip
+            size="small"
+            icon={
+              purchase.payment_method === "EFECTIVO" ? (
+                <Payments />
+              ) : (
+                <AccountBalance />
+              )
+            }
+            label={purchase.payment_method}
+            color={purchase.payment_method === "EFECTIVO" ? "success" : "info"}
+            variant="outlined"
+            sx={{ fontWeight: "bold", fontSize: "0.75rem" }}
+          />
+        </TableCell>
+
         <TableCell align="right">
-          <Typography fontWeight="bold" color="success.main">
-            ${(purchase.total ?? 0).toLocaleString()}
+          <Typography fontWeight="bold" color="error.main">
+            {/* Usamos error.main (rojo) porque en compras es una salida de dinero */}
+            - ${(purchase.total ?? 0).toLocaleString()}
           </Typography>
         </TableCell>
       </TableRow>
 
-      <TableRow sx={{ bgcolor: open ? "rgba(233, 229, 15, 0.62)" : "inherit" }}>
-        <TableCell sx={{ py: 0 }} colSpan={4}>
+      <TableRow sx={{ bgcolor: open ? "rgba(25, 118, 210, 0.04)" : "inherit" }}>
+        <TableCell sx={{ py: 0 }} colSpan={5}>
+          {" "}
+          {/* Colspan corregido a 5 */}
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box
               sx={{
                 m: { xs: 1, sm: 2 },
                 bgcolor: "#fff",
                 p: 2,
-                borderRadius: 1,
+                borderRadius: 2,
                 border: "1px solid #e0e0e0",
-                boxShadow: 1,
+                boxShadow: 2,
               }}
             >
               <Typography
                 variant="subtitle2"
-                mb={1}
+                mb={2}
                 display="flex"
                 alignItems="center"
                 gap={1}
                 color="primary.main"
+                fontWeight="bold"
               >
-                <Receipt fontSize="small" /> Detalle de la Factura
+                <Receipt fontSize="small" /> DETALLE DE COMPRA #{purchase.id}
               </Typography>
 
               <Box sx={{ overflowX: "auto" }}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow>
+                    <TableRow sx={{ bgcolor: "#fafafa" }}>
                       <TableCell sx={{ fontWeight: "bold" }}>
                         Artículo
                       </TableCell>
@@ -101,7 +126,7 @@ export const PurchaseRow = ({ purchase }: { purchase: PurchaseResponse }) => {
                         Cantidad
                       </TableCell>
                       <TableCell align="center" sx={{ fontWeight: "bold" }}>
-                        Precio Unitario
+                        Costo Unitario
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: "bold" }}>
                         Subtotal
@@ -110,17 +135,14 @@ export const PurchaseRow = ({ purchase }: { purchase: PurchaseResponse }) => {
                   </TableHead>
                   <TableBody>
                     {purchase.details.map((d) => (
-                      <TableRow key={d.id}>
+                      <TableRow key={d.id} hover>
                         <TableCell>{d.article_title}</TableCell>
                         <TableCell align="center">{d.units}</TableCell>
                         <TableCell align="center">
                           ${(d.unit_price ?? 0).toLocaleString()}
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: "600" }}>
-                          $
-                          {(
-                            (d.units || 0) * (d.unit_price || 0)
-                          ).toLocaleString()}
+                          ${(d.units * d.unit_price).toLocaleString()}
                         </TableCell>
                       </TableRow>
                     ))}

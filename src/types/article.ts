@@ -5,21 +5,29 @@ export interface Article {
   id: number;
   title: string;
   content: string;
-
-  // En tu modelo son Integers (centavos o unidades enteras)
   unit_price: number;
-  profit_margin: number; // Porcentaje (ej: 20)
-  final_price: number; // Precio calculado
+  profit_margin: number;
+  final_price: number;
   stock: number;
-
-  // En el JSON de la API, las fechas suelen venir como strings (ISO 8601)
   created_at: string;
-
-  // Foreign Keys (Relaciones)
   category_id: number;
   provider_id: number;
-
-  // Campos opcionales para cuando carguemos los objetos relacionados (Eager Loading)
+  // Nueva propiedad para la URL que devuelve el servidor
+  image_url?: string;
   category?: Category;
   provider?: Provider;
+}
+
+// Interfaz para el estado del formulario en el componente
+export interface ArticleForm {
+  title: string;
+  content: string;
+  unit_price: number;
+  profit_margin: number;
+  final_price: number;
+  stock: number;
+  category_id: number | "";
+  provider_id: number | "";
+  // El archivo binario antes de subirse
+  image?: File | null;
 }
